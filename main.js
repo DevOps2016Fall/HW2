@@ -155,9 +155,9 @@ function generateMockFsTestCases (pathExists,fileWithContent,funcName,args)
 
 function constraints(filePath)
 {
-   var buf = fs.readFileSync(filePath, "utf8");
+  var buf = fs.readFileSync(filePath, "utf8");
 	var result = esprima.parse(buf, options);
-
+	debugger;
 	traverse(result, function (node) 
 	{
 		if (node.type === 'FunctionDeclaration') 

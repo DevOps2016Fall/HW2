@@ -14,7 +14,7 @@ function main()
 
 	if( args.length == 0 )
 	{
-		args = ["subject.js"];
+		args = ["mystery.js"];
 	}
 	var filePath = args[0];
 
@@ -75,13 +75,21 @@ var mockFileLibrary =
 {
 	pathExists:
 	{
-		'path/fileExists': {}
+		'path/fileExists': {
+			file1:"sdf"
+		}
 	},
+
 	fileWithContent:
 	{
 		pathContent: 
 		{	
   			file1: 'text content',
+  			file2: "sdfd"
+		},
+		pathContentEmpty:
+		{
+			file2:''
 		}
 	}
 };
@@ -89,7 +97,7 @@ var mockFileLibrary =
 function generateTestCases()
 {
 
-	var content = "var subject = require('./subject.js')\nvar mock = require('mock-fs');\n";
+	var content = "var subject = require('./mystery.js')\nvar mock = require('mock-fs');\n";
 	for ( var funcName in functionConstraints )
 	{
 		var params = {};
@@ -111,6 +119,7 @@ function generateTestCases()
 		// Handle global constraints...
 		var fileWithContent = _.some(constraints, {kind: 'fileWithContent' });
 		var pathExists      = _.some(constraints, {kind: 'fileExists' });
+		var format_options = _.some(constraints, {kind:'format_options'});
 
     
 		// plug-in values for parameters
@@ -144,14 +153,28 @@ function generateTestCases()
 			}
 			list_value.push(param_value[key])
 		}
-    console.log(list_value)
     // console.log(cartesianProduct(list_value))
     pairs = cartesianProduct(list_value)
     for(var i=0; i< pairs.length;i++)
     {
     	if (!pathExists ||!fileWithContent)
     	{
-    		content += "subject.{0}({1});\n".format(funcName, pairs[i]);
+    		if(pairs[0].length>0)
+    		{
+    			if(format_options)
+    			{
+    				var args = ""
+    				args=["'"+faker.phone.phoneNumberFormat().toString()+"'",
+    				      "'"+faker.phone.phoneFormats().toString()+"'",
+    				      pairs[i]
+    				      ]
+						content += "subject.{0}({1});\n".format(funcName, args);
+    			}
+    		  else
+    		  {
+    		  	content += "subject.{0}({1});\n".format(funcName, pairs[i]);
+    		  }
+    		}
     	}
     }
 
@@ -245,6 +268,17 @@ function constraints(filePath)
 								expression: expression
 							}));
 					}
+					if(child.left.type == 'Identifier' && child.left.name == "area")
+					{
+						var rightHand = buf.substring(child.right.range[0], child.right.range[1])
+						functionConstraints[funcName].constraints.push(
+							new Constraint(
+							{
+								ident: 'phoneNumber',
+								value: rightHand,
+								invValue: "'a"+ rightHand + "inverseValue'"
+							}));
+					}
 				if(child.left.type == "CallExpression" && child.left.callee.property && child.left.callee.property.name =="indexOf")
 				{
 						var expression = buf.substring(child.range[0], child.range[1]);
@@ -263,8 +297,24 @@ function constraints(filePath)
 							}));
 
 				}
+			}
 
-
+			if( child.type === 'LogicalExpression' && child.operator == "||")
+				{
+					if((child.right.type == 'UnaryExpression') && (child.right.argument.type == 'MemberExpression'))
+					{
+						functionConstraints[funcName].constraints.push( 
+							new Constraint(
+							{
+								ident: child.right.argument.object.name,
+								value: '{normalize: true}',
+								invValue:'{normalize: false}',
+								funcName: funcName,
+								kind:'format_options',
+								operator : child.operator,
+								expression: expression
+							}));
+					}
 				}
 
 				if( child.type === 'BinaryExpression' && child.operator == "!=")
@@ -287,6 +337,17 @@ function constraints(filePath)
 								kind: "integer",
 								operator : child.operator,
 								expression: expression
+							}));
+					}
+					if(child.left.type == 'Identifier' && child.left.name == "area")
+					{
+						var rightHand = buf.substring(child.right.range[0], child.right.range[1])
+						functionConstraints[funcName].constraints.push(
+							new Constraint(
+							{
+								ident: 'phoneNumber',
+								value: rightHand,
+								invValue: "'a"+ rightHand + "inverseValue'"
 							}));
 					}
 				}
@@ -380,7 +441,7 @@ function constraints(filePath)
 
 			});
 
-			// console.log( functionConstraints[funcName]);
+			console.log( functionConstraints[funcName]);
 
 		}
 	});

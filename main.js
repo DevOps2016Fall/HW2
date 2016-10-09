@@ -6,6 +6,7 @@ faker.locale = "en";
 var mock = require('mock-fs');
 var _ = require('underscore');
 var Random = require('random-js');
+var Combinatorics = require('js-combinatorics');
 
 function main()
 {
@@ -40,10 +41,24 @@ function Constraint(properties)
 	this.operator = properties.operator;
 	this.value = properties.value;
 	this.funcName = properties.funcName;
+	this.invValue = properties.invValue;
 	// Supported kinds: "fileWithContent","fileExists"
 	// integer, string, phoneNumber
 	this.kind = properties.kind;
 }
+
+function cartesianProduct(arr)
+{
+    return arr.reduce(function(a,b){
+        return a.map(function(x){
+            return b.map(function(y){
+                return x.concat(y);
+            })
+        }).reduce(function(a,b){ return a.concat(b) },[])
+    }, [[]])
+}
+
+//http://stackoverflow.com/questions/12303989/cartesian-product-of-multiple-arrays-in-javascript
 
 function fakeDemo()
 {
@@ -78,16 +93,18 @@ function generateTestCases()
 	for ( var funcName in functionConstraints )
 	{
 		var params = {};
-
+    var param_value = {};
+    var list_value =[]
 		// initialize params
 		for (var i =0; i < functionConstraints[funcName].params.length; i++ )
 		{
 			var paramName = functionConstraints[funcName].params[i];
 			//params[paramName] = '\'' + faker.phone.phoneNumber()+'\'';
 			params[paramName] = '\'\'';
+			// param_value[paramName] = '\'\'';
+
 		}
 
-		//console.log( params );
 
 		// update parameter values based on known constraints.
 		var constraints = functionConstraints[funcName].constraints;
@@ -95,16 +112,50 @@ function generateTestCases()
 		var fileWithContent = _.some(constraints, {kind: 'fileWithContent' });
 		var pathExists      = _.some(constraints, {kind: 'fileExists' });
 
+    
 		// plug-in values for parameters
 		for( var c = 0; c < constraints.length; c++ )
 		{
 			var constraint = constraints[c];
+			var temp = []
 			if( params.hasOwnProperty( constraint.ident ) )
 			{
 				params[constraint.ident] = constraint.value;
+				temp.push(constraint.value);
+				if(constraint.invValue != undefined)
+				{
+					temp.push(constraint.invValue);
+				}
+				if (param_value.hasOwnProperty(constraint.ident))
+				{
+         param_value[constraint.ident].push.apply(param_value[constraint.ident], temp)
+				}
+				else
+				{
+					param_value[constraint.ident]=temp
+				}
 			}
 		}
+		for(key in params)
+		{
+			if(param_value[key] == undefined)
+			{
+				continue;
+			}
+			list_value.push(param_value[key])
+		}
+    console.log(list_value)
+    // console.log(cartesianProduct(list_value))
+    pairs = cartesianProduct(list_value)
+    for(var i=0; i< pairs.length;i++)
+    {
+    	if (!pathExists ||!fileWithContent)
+    	{
+    		content += "subject.{0}({1});\n".format(funcName, pairs[i]);
+    	}
+    }
 
+		// console.log(funcName+"length of constraints:" +constraints.length)
 		// Prepare function arguments.
 		var args = Object.keys(params).map( function(k) {return params[k]; }).join(",");
 		if( pathExists || fileWithContent )
@@ -155,15 +206,15 @@ function generateMockFsTestCases (pathExists,fileWithContent,funcName,args)
 
 function constraints(filePath)
 {
-  var buf = fs.readFileSync(filePath, "utf8");
+   var buf = fs.readFileSync(filePath, "utf8");
 	var result = esprima.parse(buf, options);
-	debugger;
+
 	traverse(result, function (node) 
 	{
 		if (node.type === 'FunctionDeclaration') 
 		{
 			var funcName = functionName(node);
-			console.log("Line : {0} Function: {1}".format(node.loc.start.line, funcName ));
+			// console.log("Line : {0} Function: {1}".format(node.loc.start.line, funcName ));
 
 			var params = node.params.map(function(p) {return p.name});
 
@@ -178,13 +229,102 @@ function constraints(filePath)
 					{
 						// get expression from original source code:
 						var expression = buf.substring(child.range[0], child.range[1]);
-						var rightHand = buf.substring(child.right.range[0], child.right.range[1])
-
+						var rightHand = buf.substring(child.right.range[0], child.right.range[1]);
+						var temp;
+						if (rightHand == "undefined") temp = 100;
+						else temp = "'a"+ rightHand + "inverseValue'"; 
 						functionConstraints[funcName].constraints.push( 
 							new Constraint(
 							{
 								ident: child.left.name,
 								value: rightHand,
+								invValue: temp,
+								funcName: funcName,
+								kind: "integer",
+								operator : child.operator,
+								expression: expression
+							}));
+					}
+				if(child.left.type == "CallExpression" && child.left.callee.property && child.left.callee.property.name =="indexOf")
+				{
+						var expression = buf.substring(child.range[0], child.range[1]);
+						var leftHand = buf.substring(child.left.arguments[0].range[0], child.left.arguments[0].range[1]);
+						console.log(child.left.callee.object.name)
+						functionConstraints[funcName].constraints.push( 
+							new Constraint(
+							{
+								ident: child.left.callee.object.name,
+								value: leftHand,
+								invValue: "'a"+ leftHand + "inverseValue'",
+								funcName: funcName,
+								kind: "integer",
+								operator : child.operator,
+								expression: expression
+							}));
+
+				}
+
+
+				}
+
+				if( child.type === 'BinaryExpression' && child.operator == "!=")
+				{
+					if( child.left.type == 'Identifier' && params.indexOf( child.left.name ) > -1)
+					{
+						// get expression from original source code:
+						var expression = buf.substring(child.range[0], child.range[1]);
+						var rightHand = buf.substring(child.right.range[0], child.right.range[1]);
+						var temp;
+						if (rightHand == "undefined") temp = 100;
+						else temp = "'a"+ rightHand + "inverseValue'"; 
+						functionConstraints[funcName].constraints.push( 
+							new Constraint(
+							{
+								ident: child.left.name,
+								value: rightHand,
+								invValue: temp,
+								funcName: funcName,
+								kind: "integer",
+								operator : child.operator,
+								expression: expression
+							}));
+					}
+				}
+
+				if( child.type === 'BinaryExpression' && child.operator == "<")
+				{
+					if( child.left.type == 'Identifier' && params.indexOf( child.left.name ) > -1)
+					{
+						// get expression from original source code:
+						var expression = buf.substring(child.range[0], child.range[1]);
+						var rightHand = parseInt(buf.substring(child.right.range[0], child.right.range[1])); 
+						functionConstraints[funcName].constraints.push( 
+							new Constraint(
+							{
+								ident: child.left.name,
+								value: rightHand,
+								invValue: rightHand-1,
+								funcName: funcName,
+								kind: "integer",
+								operator : child.operator,
+								expression: expression
+							}));
+					}
+				}
+
+				if( child.type === 'BinaryExpression' && child.operator == ">")
+				{
+					if( child.left.type == 'Identifier' && params.indexOf( child.left.name ) > -1)
+					{
+						// get expression from original source code:
+						var expression = buf.substring(child.range[0], child.range[1]);
+						var rightHand = parseInt(buf.substring(child.right.range[0], child.right.range[1])); 
+						functionConstraints[funcName].constraints.push( 
+							new Constraint(
+							{
+								ident: child.left.name,
+								value: rightHand,
+								invValue: rightHand+1,
 								funcName: funcName,
 								kind: "integer",
 								operator : child.operator,
@@ -240,7 +380,7 @@ function constraints(filePath)
 
 			});
 
-			console.log( functionConstraints[funcName]);
+			// console.log( functionConstraints[funcName]);
 
 		}
 	});
